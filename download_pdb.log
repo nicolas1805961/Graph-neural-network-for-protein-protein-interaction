@@ -1,0 +1,16 @@
+INFO:__main__:Original number of pairs : 146160
+INFO:__main__:Number of pairs after keeping only uniprot id: 136682
+INFO:__main__:Number of pairs after keeping only uniprot id and direct interactions: 7730
+INFO:__main__:Number of pairs after removing duplicate rows: 4305
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+WARNING:__main__:P62988 : ID no longer present in Uniprot
+INFO:__main__:P19525 : Downloaded
