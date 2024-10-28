@@ -17,6 +17,8 @@ class Encoder(torch.nn.Module):
 
     def forward(self, x, edge_index, batch):
 
+        x = x.squeeze()
+
         x = self.embedder(x)
 
         for layer in self.layers:
@@ -36,8 +38,7 @@ class GCN(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, hidden_dim // 2),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim // 2, 1),
-            torch.nn.Sigmoid(),
+            torch.nn.Linear(hidden_dim // 2, 2)
         )
 
     def forward(self, data):

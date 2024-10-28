@@ -20,21 +20,46 @@ def one_hot_residue(residue, amino_acid_to_int):
     one_hot[:, amino_acid_to_int[residue] - 1] = 1
     return one_hot
 
+def check_and_get_atom(residue):
+    if 'CA' in residue:
+        CA_coord = residue['CA'].get_coord()
+    else:
+        CA_coord = [np.nan, np.nan, np.nan]
+
+    if 'N' in residue:
+        N_coord = residue['N'].get_coord()
+    else:
+        N_coord = [np.nan, np.nan, np.nan]
+
+    if 'C' in residue:
+        C_coord = residue['C'].get_coord()
+    else:
+        C_coord = [np.nan, np.nan, np.nan]
+
+    if 'O' in residue:
+        O_coord = residue['O'].get_coord()
+    else:
+        O_coord = [np.nan, np.nan, np.nan]
+
+    if np.all(CA_coord == np.nan):
+        NCO_coord = np.array([N_coord, C_coord, O_coord])
+        CA_coord = NCO_coord.mean(0)
+    
+    backbone_atoms = np.array([N_coord, CA_coord, C_coord, O_coord])
+    return backbone_atoms
+
+
 def get_info(chain, one_hot_list, coordinate_list, amino_acid_to_int):
     for residue in chain:
         if residue.id[0] == ' ':
             residue_name = residue.get_resname()
-            #if residue_name == 'TPO':
-            #    residue_name = 'THR'
-            #if residue_name == 'PTR':
-            #    residue_name = 'TYR'
-            one_hot = one_hot_residue(residue_name, amino_acid_to_int)
+            if residue_name == 'UNK':
+                continue
+            one_hot = np.array([amino_acid_to_int[residue_name] - 1]).reshape((1,))
             one_hot_list.append(one_hot)
-            N_coord = residue['N'].get_coord()
-            CA_coord = residue['CA'].get_coord()
-            C_coord = residue['C'].get_coord()
-            O_coord = residue['O'].get_coord()
-            backbone_atoms = np.array([N_coord, CA_coord, C_coord, O_coord])
+
+            backbone_atoms = check_and_get_atom(residue=residue)
+            
             coordinate_list.append(backbone_atoms)
     return one_hot_list, coordinate_list
 

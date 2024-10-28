@@ -120,7 +120,7 @@ def download_pdb_files(uniprot_id_list, logger, proxies):
 
     error_dict = {}
 
-    for idx, uniprot_id in enumerate(tqdm(uniprot_id_list)):
+    for idx, uniprot_id in enumerate(tqdm(uniprot_id_list[:20])):
         new_file_name = os.path.join('data', 'PDB_files', uniprot_id + '.cif')
         my_file = Path(new_file_name)
         if my_file.is_file():
@@ -209,15 +209,117 @@ def download_pdb_files(uniprot_id_list, logger, proxies):
 
 
 
+def handle_positive_case(logger, proxies, column_names):
+
+    # Load the PSI-MITAB file into a pandas DataFrame
+    df = pd.read_csv('hpidb2.mitab.txt', sep='\t', header=0, encoding='ISO-8859-1')
+    df2 = pd.read_csv('species_human.txt', sep='\t', header=None, encoding='ISO-8859-1', names=column_names)
+
+    df = pd.concat([df, df2], axis=0)
+
+    # Show the original number of rows
+    logger.info(f"Original number of pairs : {len(df)}")
+
+    # Filter the DataFrame
+    filtered_df = df[df['protein_xref_1'].str.contains('uniprot', na=False) & 
+                    df['protein_xref_2'].str.contains('uniprot', na=False)]
+
+    # Show the filtered number of rows
+    logger.info(f"Number of pairs after keeping only uniprot id: {len(filtered_df)}")
+
+    filtered_df = filtered_df[filtered_df['interaction_type'].str.contains('direct interaction', na=False)]
+
+    logger.info(f"Number of pairs after keeping only uniprot id and direct interactions: {len(filtered_df)}")
+    # Use .loc to set values in a slice of the DataFrame
+    filtered_df.loc[:, 'protein_xref_1'] = filtered_df['protein_xref_1'].apply(lambda x: x.split('uniprotkb:')[-1])
+    filtered_df.loc[:, 'protein_xref_1'] = filtered_df['protein_xref_1'].apply(lambda x: x.split('-')[0])
+
+    # Optionally apply the same operation to 'protein_xref_2' if needed
+    filtered_df.loc[:, 'protein_xref_2'] = filtered_df['protein_xref_2'].apply(lambda x: x.split('uniprotkb:')[-1])
+    filtered_df.loc[:, 'protein_xref_2'] = filtered_df['protein_xref_2'].apply(lambda x: x.split('-')[0])
+
+    temp_df = filtered_df[['protein_xref_1', 'protein_xref_2']]
+    duplicate_indices = temp_df.duplicated().values
+    filtered_df = filtered_df.drop(filtered_df[duplicate_indices].index, axis='index')
+
+    logger.info(f"Number of pairs after removing duplicate rows: {len(filtered_df)}")
+
+    filtered_df = filtered_df.reset_index(drop=True)
+    out_nb = len(filtered_df)
+
+    # Display the modified column to check results
+    #with open('error.txt', 'w+') as file_descriptor:
+    error_dict_1 = download_pdb_files(filtered_df['protein_xref_1'].values, logger, proxies)
+    error_dict_2 = download_pdb_files(filtered_df['protein_xref_2'].values, logger, proxies)
+
+    error_list_1 = [item for sublist in error_dict_1.values() for item in sublist]
+    error_list_2 = [item for sublist in error_dict_2.values() for item in sublist]
+
+    error_indices = np.unique(error_list_1 + error_list_2)
+    logger.info(f"Number of row removed after downloading: {len(error_indices)}")
+    filtered_df = filtered_df.drop(error_indices, axis='index')
+    logger.info(f"Final number of pairs: {len(filtered_df)}")
+    filtered_df = filtered_df.reset_index(drop=True)
+
+    filtered_df.to_csv('positive.csv')
+
+    return out_nb
+
+
+def handle_negative_case(logger, proxies, nb):
+    df = pd.read_csv('16169070_neg.mitab', sep='\t', header=None, encoding='ISO-8859-1')
+    df = df[[0, 1]]
+    df = df.sample(n=nb, random_state=42).reset_index(drop=True)
+
+    # Show the original number of rows
+    logger.info(f"Original number of pairs : {len(df)}")
+
+    # Filter the DataFrame
+    filtered_df = df[df[0].str.contains('uniprot', na=False) & 
+                    df[1].str.contains('uniprot', na=False)]
+    
+    logger.info(f"Number of pairs after keeping only uniprot id: {len(filtered_df)}")
+
+    # Use .loc to set values in a slice of the DataFrame
+    filtered_df.loc[:, 0] = filtered_df[0].apply(lambda x: x.split('uniprotkb:')[-1])
+    filtered_df.loc[:, 0] = filtered_df[0].apply(lambda x: x.split('-')[0])
+
+    # Optionally apply the same operation to 'protein_xref_2' if needed
+    filtered_df.loc[:, 1] = filtered_df[1].apply(lambda x: x.split('uniprotkb:')[-1])
+    filtered_df.loc[:, 1] = filtered_df[1].apply(lambda x: x.split('-')[0])
+
+    temp_df = filtered_df
+    duplicate_indices = temp_df.duplicated().values
+    filtered_df = filtered_df.drop(filtered_df[duplicate_indices].index, axis='index')
+
+    logger.info(f"Number of pairs after removing duplicate rows: {len(filtered_df)}")
+
+    filtered_df = filtered_df.reset_index(drop=True)
+
+    # Display the modified column to check results
+    #with open('error.txt', 'w+') as file_descriptor:
+    error_dict_1 = download_pdb_files(filtered_df[0].values, logger, proxies)
+    error_dict_2 = download_pdb_files(filtered_df[1].values, logger, proxies)
+
+    error_list_1 = [item for sublist in error_dict_1.values() for item in sublist]
+    error_list_2 = [item for sublist in error_dict_2.values() for item in sublist]
+
+    error_indices = np.unique(error_list_1 + error_list_2)
+    logger.info(f"Number of row removed after downloading: {len(error_indices)}")
+    filtered_df = filtered_df.drop(error_indices, axis='index')
+    logger.info(f"Final number of pairs: {len(filtered_df)}")
+    filtered_df = filtered_df.reset_index(drop=True)
+
+    filtered_df.to_csv('negative.csv')
 
 
 if __name__ == '__main__':
 
-    proxies = {
-    "http": "http://192.168.0.100:3128",
-    "https": "http://192.168.0.100:3128"}
+    #proxies = {
+    #"http": "http://192.168.0.100:3128",
+    #"https": "http://192.168.0.100:3128"}
 
-    #proxies = {}
+    proxies = {}
 
     column_names = [
         'protein_xref_1',
@@ -248,56 +350,8 @@ if __name__ == '__main__':
     delete_if_exist(pkl_path)
     os.makedirs(pkl_path)
 
-    # Load the PSI-MITAB file into a pandas DataFrame
-    df = pd.read_csv('hpidb2.mitab.txt', sep='\t', header=0, encoding='ISO-8859-1')
-    df2 = pd.read_csv('species_human.txt', sep='\t', header=None, encoding='ISO-8859-1', names=column_names)
-
-    df = pd.concat([df, df2], axis=0)
-
-    # Show the original number of rows
-    logger.info(f"Original number of pairs : {len(df)}")
-
-    # Filter the DataFrame
-    filtered_df = df[df['protein_xref_1'].str.contains('uniprot', na=False) & 
-                    df['protein_xref_2'].str.contains('uniprot', na=False)]
-
-    # Show the filtered number of rows
-    logger.info(f"Number of pairs after keeping only uniprot id: {len(filtered_df)}")
-
-    filtered_df = filtered_df[filtered_df['interaction_type'].str.contains('direct interaction', na=False)]
-
-    logger.info(f"Number of pairs after keeping only uniprot id and direct interactions: {len(filtered_df)}")
-    # Use .loc to set values in a slice of the DataFrame
-    filtered_df.loc[:, 'protein_xref_1'] = filtered_df['protein_xref_1'].apply(lambda x: x.split('uniprotkb:')[-1])
-    filtered_df.loc[:, 'protein_xref_1'] = filtered_df['protein_xref_1'].apply(lambda x: x.split('-')[0])
-
-    # Optionally apply the same operation to 'protein_xref_2' if needed
-    filtered_df.loc[:, 'protein_xref_2'] = filtered_df['protein_xref_2'].apply(lambda x: x.split('uniprotkb:')[-1])
-    filtered_df.loc[:, 'protein_xref_2'] = filtered_df['protein_xref_2'].apply(lambda x: x.split('-')[0])
-
-
-    temp_df = filtered_df[['protein_xref_1', 'protein_xref_2']]
-    duplicate_indices = temp_df.duplicated().values
-    filtered_df = filtered_df.drop(filtered_df[duplicate_indices].index, axis='index')
-
-    logger.info(f"Number of pairs after removing duplicate rows: {len(filtered_df)}")
-
-    filtered_df = filtered_df.reset_index(drop=True)
-
-    filtered_df.to_csv('filtered_ppi.csv')
-
-    # Display the modified column to check results
-    #with open('error.txt', 'w+') as file_descriptor:
-    error_dict_1 = download_pdb_files(filtered_df['protein_xref_1'].values, logger, proxies)
-    error_dict_2 = download_pdb_files(filtered_df['protein_xref_2'].values, logger, proxies)
-
-    error_list_1 = [item for sublist in error_dict_1.values() for item in sublist]
-    error_list_2 = [item for sublist in error_dict_2.values() for item in sublist]
-
-    error_indices = np.unique(error_list_1 + error_list_2)
-    logger.info(f"Number of row removed after downloading: {len(error_indices)}")
-    filtered_df = filtered_df.drop(error_indices, axis='index')
-    logger.info(f"Final number of pairs: {len(filtered_df)}")
-    filtered_df = filtered_df.reset_index(drop=True)
-
-    filtered_df.to_csv('filtered_ppi_dropped.csv')
+    nb = handle_positive_case(logger=logger, proxies=proxies, column_names=column_names)
+    logger.info("*"*1000)
+    logger.info("Start negative cases")
+    handle_negative_case(logger=logger, proxies=proxies, nb=nb)
+    

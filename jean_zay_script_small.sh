@@ -10,9 +10,9 @@
 ##SBATCH --cpus-per-task=3           # nombre de coeurs CPU par tache (pour gpu_p2 : 1/8 du noeud 8-GPU)
 # /!\ Attention, "multithread" fait reference Ã  l'hyperthreading dans la terminologie Slurm
 ##SBATCH --hint=nomultithread         # hyperthreading desactive
-##SBATCH --time=02:00:00          # 48:00:00 temps maximum d'execution demande (HH:MM:SS) 00:05:00 20:00:00  
 #SBATCH --output=gpu_mono%j.out      # nom du fichier de sortie
 #SBATCH --error=gpu_mono%j.out       # nom du fichier d'erreur (ici commun avec la sortie)
+#SBATCH --time=8-03:00:00
 
 # nettoyage des modules charges en interactif et herites par defaut
 module purge
