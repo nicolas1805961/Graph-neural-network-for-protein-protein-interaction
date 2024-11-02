@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 import logging
 import time
+from copy import copy
 
 import warnings
 from Bio import BiopythonWarning
@@ -29,7 +30,7 @@ def get_url_handle_errors(url, proxies, logger, uniprot_id):
             break
     return response
 
-def handle_case_xray(json_response, dict_info, chain_dict, uniprot_id, idx, error_dict, logger, proxies):
+def handle_case_xray(json_response, dict_info, chain_dict, uniprot_id, idx, error_dict, logger, proxies, primaryAccession):
     contain_alphafold = False
     for entry in json_response['uniProtKBCrossReferences']:
         if entry['database'] == 'PDB':
@@ -38,63 +39,37 @@ def handle_case_xray(json_response, dict_info, chain_dict, uniprot_id, idx, erro
             pdb_response = get_url_handle_errors(url=url_pdb, proxies=proxies, logger=logger, uniprot_id=uniprot_id)
             if pdb_response.status_code == 200:
                 json_response_pdb = pdb_response.json()
-                if 'resolution_combined' in json_response_pdb['rcsb_entry_info']:
-                    entities = json_response_pdb['rcsb_entry_container_identifiers']['polymer_entity_ids']
-                    for entity in entities:
-                        url_pdb_entity = f'https://data.rcsb.org/rest/v1/core/polymer_entity/{pdb_id}/{entity}'
-
-                        pdb_response_entity = get_url_handle_errors(url=url_pdb_entity, proxies=proxies, logger=logger, uniprot_id=uniprot_id)
-
-                        #pdb_response_entity = requests.get(url_pdb_entity, proxies=proxies)
-                        if pdb_response_entity.status_code == 200:
-                            json_response_pdb_entity = pdb_response_entity.json()
-                            if ('rcsb_polymer_entity_align' in json_response_pdb_entity and 
-                                len(json_response_pdb_entity['rcsb_polymer_entity_align']) == 1 and 
-                                json_response_pdb_entity['rcsb_polymer_entity_align'][0]['reference_database_accession'] == uniprot_id):
-                                    dict_info[pdb_id] = (json_response_pdb_entity['entity_poly']['rcsb_sample_sequence_length'], 
-                                                        json_response_pdb['rcsb_entry_info']['resolution_combined'][0])
-                                    chain_dict[pdb_id] = json_response_pdb_entity['entity_poly']['pdbx_strand_id'].split(',')
-                                    #print(uniprot_id)
-                                    #print(pdb_id)
-                                    #print(json_response_pdb_entity['entity_poly']['pdbx_strand_id'])
-                        else:
-                            error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Requests returned error (RCSB PDB entity)')
-            else:
-                error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Requests returned error (RCSB PDB)')
-        elif entry['database'] == 'AlphaFoldDB':
-            contain_alphafold = True
-    
-    return dict_info, chain_dict, error_dict, contain_alphafold
-
-
-def handle_case_no_xray(json_response, dict_info, chain_dict, uniprot_id, idx, error_dict, logger, proxies):
-    for entry in json_response['uniProtKBCrossReferences']:
-        if entry['database'] == 'PDB':
-            pdb_id = entry['id']
-            url_pdb = f'https://data.rcsb.org/rest/v1/core/entry/{pdb_id}'
-            pdb_response = get_url_handle_errors(url=url_pdb, proxies=proxies, logger=logger, uniprot_id=uniprot_id)
-            if pdb_response.status_code == 200:
-                json_response_pdb = pdb_response.json()
                 entities = json_response_pdb['rcsb_entry_container_identifiers']['polymer_entity_ids']
-                for entity in entities:
+                for entity_idx, entity in enumerate(entities):
                     url_pdb_entity = f'https://data.rcsb.org/rest/v1/core/polymer_entity/{pdb_id}/{entity}'
 
                     pdb_response_entity = get_url_handle_errors(url=url_pdb_entity, proxies=proxies, logger=logger, uniprot_id=uniprot_id)
 
-                    #pdb_response_entity = requests.get(url_pdb_entity)
+                    #pdb_response_entity = requests.get(url_pdb_entity, proxies=proxies)
                     if pdb_response_entity.status_code == 200:
                         json_response_pdb_entity = pdb_response_entity.json()
                         if ('rcsb_polymer_entity_align' in json_response_pdb_entity and 
-                            len(json_response_pdb_entity['rcsb_polymer_entity_align']) == 1 and 
-                            json_response_pdb_entity['rcsb_polymer_entity_align'][0]['reference_database_accession'] == uniprot_id):
-                                dict_info[pdb_id] = (json_response_pdb_entity['entity_poly']['rcsb_sample_sequence_length'], 0.0)
+                            len(json_response_pdb_entity['rcsb_polymer_entity_align']) == 1 and
+                            json_response_pdb_entity['entity_poly']['rcsb_sample_sequence_length'] < 2000):
+                                
+                                if json_response_pdb_entity['rcsb_polymer_entity_align'][0]['reference_database_accession'] not in [uniprot_id, primaryAccession]:
+                                    continue
+
+                                if 'resolution_combined' in json_response_pdb['rcsb_entry_info']:
+                                    res = json_response_pdb['rcsb_entry_info']['resolution_combined'][0]
+                                else:
+                                    res = 3.5
+                                dict_info[pdb_id] = (json_response_pdb_entity['entity_poly']['rcsb_sample_sequence_length'], res)
                                 chain_dict[pdb_id] = json_response_pdb_entity['entity_poly']['pdbx_strand_id'].split(',')
+                                #print(uniprot_id)
                     else:
-                        error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Requests returned error (RCSB PDB entity)')
+                        logger.warning(f"{uniprot_id} : Requests returned error (RCSB PDB entity) for pdb ID {pdb_id} entity {entity}")
             else:
-                error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Requests returned error (RCSB PDB)')
+                logger.warning(f"{uniprot_id} : Requests returned error (RCSB PDB entity) for pdb ID {pdb_id}")
+        elif entry['database'] == 'AlphaFoldDB':
+            contain_alphafold = True
     
-    return dict_info, chain_dict, error_dict
+    return dict_info, chain_dict, error_dict, contain_alphafold
 
 
 def delete_if_exist(folder_name):
@@ -103,9 +78,8 @@ def delete_if_exist(folder_name):
         shutil.rmtree(dirpath)
 
 def sort_dict(pdb_id, dict_info):
-    # Extract the tuple values for sorting
-    sequence_length, resolution = dict_info[pdb_id]
-    return (sequence_length, -resolution)  # Negate for descending order
+    sequence_length, resolution, idx = dict_info[pdb_id]
+    return (sequence_length, -resolution, -idx)  # Negate for descending order
 
 def handle_dict(k, v, d, logger, message):
     logger.warning(f"{k} : {message}")
@@ -116,11 +90,54 @@ def handle_dict(k, v, d, logger, message):
         d[k] = [v]
     return d
 
+def weight_dict(dict_info):
+    out_dict = copy(dict_info)
+    length_weight = 1
+    res_weight = 1
+    val_1 = np.array([x[0] for x in dict_info.values()])
+    val_2 = np.array([x[1] for x in dict_info.values()])
+    val_1 = (val_1 - val_1.min()) / (val_1.max() - val_1.min() + 1e-7)
+    val_2 = (val_2 - val_2.min()) / (val_2.max() - val_2.min() + 1e-7)
+    out = (length_weight * val_1) - (res_weight * val_2)
+    for idx, k in enumerate(dict_info.keys()):
+        out_dict[k] = out[idx]
+    return out_dict
+
+
+def handle_alphafold(uniprot_id, idx, primaryAccession, proxies, logger, error_dict):
+    url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_id}-F1-model_v4.cif"
+    alphafold_response = get_url_handle_errors(url=url, proxies=proxies, logger=logger, uniprot_id=uniprot_id)
+    if alphafold_response.status_code == 200:
+        with open(os.path.join('data', 'PDB_files', uniprot_id + '.cif'), 'wb') as fd_alphafold:
+            fd_alphafold.write(alphafold_response.content)
+        logger.warning(f"{uniprot_id} : Downloaded Alphafold version")
+
+        with open(os.path.join('data', 'PKL_files', uniprot_id + '.pkl'), 'wb') as pkl_fd:
+            pickle.dump([], pkl_fd, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        url = f"https://alphafold.ebi.ac.uk/files/AF-{primaryAccession}-F1-model_v4.cif"
+        alphafold_response = get_url_handle_errors(url=url, proxies=proxies, logger=logger, uniprot_id=uniprot_id)
+        if alphafold_response.status_code == 200:
+            with open(os.path.join('data', 'PDB_files', uniprot_id + '.cif'), 'wb') as fd_alphafold:
+                fd_alphafold.write(alphafold_response.content)
+            logger.warning(f"{uniprot_id} : Downloaded Alphafold version")
+
+            with open(os.path.join('data', 'PKL_files', uniprot_id + '.pkl'), 'wb') as pkl_fd:
+                pickle.dump([], pkl_fd, protocol=pickle.HIGHEST_PROTOCOL)
+        else:
+            error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Requests returned error (Alphafold)')
+    
+    return error_dict
+
+
 def download_pdb_files(uniprot_id_list, logger, proxies):
 
     error_dict = {}
 
-    for idx, uniprot_id in enumerate(tqdm(uniprot_id_list[:20])):
+    for idx, uniprot_id in enumerate(tqdm(uniprot_id_list)):
+        #if uniprot_id != 'B1AKG1':
+        #    continue
+
         new_file_name = os.path.join('data', 'PDB_files', uniprot_id + '.cif')
         my_file = Path(new_file_name)
         if my_file.is_file():
@@ -131,6 +148,7 @@ def download_pdb_files(uniprot_id_list, logger, proxies):
         #response = requests.get(url)
         if response.status_code == 200:
             json_response = response.json()
+            primaryAccession = json_response['primaryAccession']
             dict_info = {}
             chain_dict = {}
             if 'uniProtKBCrossReferences' in json_response:
@@ -141,19 +159,8 @@ def download_pdb_files(uniprot_id_list, logger, proxies):
                                                                      idx=idx,
                                                                      error_dict=error_dict,
                                                                      logger=logger,
-                                                                     proxies=proxies)
-                if not dict_info:
-                    dict_info, chain_dict, error_dict = handle_case_no_xray(json_response=json_response,
-                                                                            dict_info=dict_info,
-                                                                            chain_dict=chain_dict,
-                                                                            uniprot_id=uniprot_id,
-                                                                            idx=idx,
-                                                                            error_dict=error_dict,
-                                                                            logger=logger,
-                                                                            proxies=proxies)
-                    if dict_info:
-                        logger.warning(f"{uniprot_id} : Selected non-Xray method")
-                        #file_descriptor.write(f"{uniprot_id} : Did not select Xray method\n")
+                                                                     proxies=proxies,
+                                                                     primaryAccession=primaryAccession)
                     
             else:
                 error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'ID no longer present in Uniprot')
@@ -161,46 +168,27 @@ def download_pdb_files(uniprot_id_list, logger, proxies):
             
             if not dict_info:
                 if contain_alphafold:
-                    #error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Only Alphafold')
-                    url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_id}-F1-model_v4.cif"
-                    alphafold_response = requests.get(url)
-                    if alphafold_response.status_code == 200:
-                        with open(os.path.join('data', 'PDB_files', uniprot_id + '.cif'), 'wb') as fd_alphafold:
-                            fd_alphafold.write(alphafold_response.content)
-                        logger.warning(f"{uniprot_id} : Downloaded Alphafold version")
-
-                        with open(os.path.join('data', 'PKL_files', uniprot_id + '.pkl'), 'wb') as pkl_fd:
-                            pickle.dump([], pkl_fd, protocol=pickle.HIGHEST_PROTOCOL)
-                    else:
-                        error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Requests returned error (Alphafold)')
+                    error_dict = handle_alphafold(uniprot_id=uniprot_id,
+                                                  idx=idx,
+                                                  primaryAccession=primaryAccession,
+                                                  proxies=proxies,
+                                                  logger=logger,
+                                                  error_dict=error_dict)
                 else:
                     error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'No structure info')
             else:
-                #s = sorted(s, key = lambda x: (x[1], x[2]))
-                right_pdb_id = max(dict_info, key=lambda x: sort_dict(x, dict_info))
-                # Create an instance of the PDBList class
+                dict_info = weight_dict(dict_info=dict_info)
+                right_pdb_id = max(dict_info, key=lambda x: dict_info[x])
                 pdb_list = PDBList()
-                # Download the MMCIF file using the retrieve_pdb_file method
 
                 url = f"https://files.rcsb.org/download/{right_pdb_id}.cif"
-                cif_response = requests.get(url)
+                cif_response = get_url_handle_errors(url=url, proxies=proxies, logger=logger, uniprot_id=uniprot_id)
                 with open(os.path.join('data', 'PDB_files', uniprot_id + '.cif'), 'wb') as fd_cif:
                     fd_cif.write(cif_response.content)
                     logger.info(f"{uniprot_id} : Downloaded")
-                
-                #pdb_filename = pdb_list.retrieve_pdb_file(right_pdb_id, pdir="data/PDB_files", file_format="mmCif")
-                #os.rename(os.path.join('data', 'PDB_files', right_pdb_id + '.cif'), new_file_name)
 
                 with open(os.path.join('data', 'PKL_files', uniprot_id + '.pkl'), 'wb') as pkl_fd:
                     pickle.dump(chain_dict[right_pdb_id], pkl_fd, protocol=pickle.HIGHEST_PROTOCOL)
-
-                #parser = MMCIFParser()
-                #structure = parser.get_structure('protein_structure', os.path.join('data', 'PDB_files', right_pdb_id + '.cif'))
-#
-                #selected_chains = []
-                #for chain in structure[0]:
-                #    if chain.get_id() in chain_dict[right_pdb_id]:
-                #        selected_chains.append(chain)
         
         else:
             error_dict = handle_dict(uniprot_id, idx, error_dict, logger, 'Requests returned error (Uniprot)')
@@ -211,30 +199,26 @@ def download_pdb_files(uniprot_id_list, logger, proxies):
 
 def handle_positive_case(logger, proxies, column_names):
 
-    # Load the PSI-MITAB file into a pandas DataFrame
     df = pd.read_csv('hpidb2.mitab.txt', sep='\t', header=0, encoding='ISO-8859-1')
     df2 = pd.read_csv('species_human.txt', sep='\t', header=None, encoding='ISO-8859-1', names=column_names)
 
     df = pd.concat([df, df2], axis=0)
 
-    # Show the original number of rows
     logger.info(f"Original number of pairs : {len(df)}")
-
-    # Filter the DataFrame
+    
     filtered_df = df[df['protein_xref_1'].str.contains('uniprot', na=False) & 
                     df['protein_xref_2'].str.contains('uniprot', na=False)]
 
-    # Show the filtered number of rows
+    
     logger.info(f"Number of pairs after keeping only uniprot id: {len(filtered_df)}")
 
     filtered_df = filtered_df[filtered_df['interaction_type'].str.contains('direct interaction', na=False)]
 
     logger.info(f"Number of pairs after keeping only uniprot id and direct interactions: {len(filtered_df)}")
-    # Use .loc to set values in a slice of the DataFrame
+    
     filtered_df.loc[:, 'protein_xref_1'] = filtered_df['protein_xref_1'].apply(lambda x: x.split('uniprotkb:')[-1])
     filtered_df.loc[:, 'protein_xref_1'] = filtered_df['protein_xref_1'].apply(lambda x: x.split('-')[0])
 
-    # Optionally apply the same operation to 'protein_xref_2' if needed
     filtered_df.loc[:, 'protein_xref_2'] = filtered_df['protein_xref_2'].apply(lambda x: x.split('uniprotkb:')[-1])
     filtered_df.loc[:, 'protein_xref_2'] = filtered_df['protein_xref_2'].apply(lambda x: x.split('-')[0])
 
@@ -247,8 +231,6 @@ def handle_positive_case(logger, proxies, column_names):
     filtered_df = filtered_df.reset_index(drop=True)
     out_nb = len(filtered_df)
 
-    # Display the modified column to check results
-    #with open('error.txt', 'w+') as file_descriptor:
     error_dict_1 = download_pdb_files(filtered_df['protein_xref_1'].values, logger, proxies)
     error_dict_2 = download_pdb_files(filtered_df['protein_xref_2'].values, logger, proxies)
 
@@ -271,20 +253,16 @@ def handle_negative_case(logger, proxies, nb):
     df = df[[0, 1]]
     df = df.sample(n=nb, random_state=42).reset_index(drop=True)
 
-    # Show the original number of rows
     logger.info(f"Original number of pairs : {len(df)}")
 
-    # Filter the DataFrame
     filtered_df = df[df[0].str.contains('uniprot', na=False) & 
                     df[1].str.contains('uniprot', na=False)]
     
     logger.info(f"Number of pairs after keeping only uniprot id: {len(filtered_df)}")
 
-    # Use .loc to set values in a slice of the DataFrame
     filtered_df.loc[:, 0] = filtered_df[0].apply(lambda x: x.split('uniprotkb:')[-1])
     filtered_df.loc[:, 0] = filtered_df[0].apply(lambda x: x.split('-')[0])
 
-    # Optionally apply the same operation to 'protein_xref_2' if needed
     filtered_df.loc[:, 1] = filtered_df[1].apply(lambda x: x.split('uniprotkb:')[-1])
     filtered_df.loc[:, 1] = filtered_df[1].apply(lambda x: x.split('-')[0])
 
@@ -296,8 +274,6 @@ def handle_negative_case(logger, proxies, nb):
 
     filtered_df = filtered_df.reset_index(drop=True)
 
-    # Display the modified column to check results
-    #with open('error.txt', 'w+') as file_descriptor:
     error_dict_1 = download_pdb_files(filtered_df[0].values, logger, proxies)
     error_dict_2 = download_pdb_files(filtered_df[1].values, logger, proxies)
 
@@ -315,11 +291,11 @@ def handle_negative_case(logger, proxies, nb):
 
 if __name__ == '__main__':
 
-    #proxies = {
-    #"http": "http://192.168.0.100:3128",
-    #"https": "http://192.168.0.100:3128"}
+    proxies = {
+    "http": "http://192.168.0.100:3128",
+    "https": "http://192.168.0.100:3128"}
 
-    proxies = {}
+    #proxies = {}
 
     column_names = [
         'protein_xref_1',

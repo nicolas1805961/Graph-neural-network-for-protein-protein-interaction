@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 import shutil
 from pathlib import Path
+import logging
 
 import warnings
 from Bio import BiopythonWarning
@@ -82,6 +83,9 @@ if __name__ == '__main__':
 
     max_distance = 10
 
+    logging.basicConfig(filename='get_npy.log', filemode='w', level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
     amino_acid_to_int = {
     'ALA': 1, 'CYS': 2, 'ASP': 3, 'GLU': 4, 'PHE': 5,
     'GLY': 6, 'HIS': 7, 'ILE': 8, 'LYS': 9, 'LEU': 10,
@@ -105,13 +109,17 @@ if __name__ == '__main__':
     os.makedirs(one_hot_path)
 
 
-    path_list = os.listdir(r'data\PDB_files')
+    path_list = os.listdir(os.path.join('data', 'PDB_files'))
 
     for pdb_path in tqdm(path_list):
 
         file_name = os.path.basename(pdb_path)[:-4]
+        #if file_name != 'P31689':
+        #    continue
 
-        with open(os.path.join(r'data\PKL_files', file_name + '.pkl'), 'rb') as fd:
+        logger.info(f"{file_name}")
+
+        with open(os.path.join('data', 'PKL_files', file_name + '.pkl'), 'rb') as fd:
             right_chains = pickle.load(fd)
 
         parser = MMCIFParser()
